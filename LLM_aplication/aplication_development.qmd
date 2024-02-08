@@ -1,0 +1,9 @@
+# Aplication Development
+
+## Preview
+
+- prompts
+- langchain
+
+## Chat API: Open AI
+- Open ai version 1.0.0

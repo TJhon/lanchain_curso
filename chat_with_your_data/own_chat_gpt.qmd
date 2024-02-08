@@ -1,0 +1,559 @@
+# Chat With Your Data
+
+In this course, we will endeavor to replicate [chatpdf](https://www.chatpdf.com/) and the essence of all natural language models that operate by responding within a specific context (a document).
+
+## Requirements
+
+```{python}
+%pip install langchain openai pypdf python-dotenv chromadb lark -q
+```
+
+## Structure
+
+- API keys and Environment Variables
+- Document Loading
+- Document Splitting
+- Vectorstores and Embedding (Storage)
+- Retrieval
+- Question Answering
+- Chat
+- Conclusion
+
+<!-- ![](figs/0_preview.png) -->
+![](https://python.langchain.com/assets/images/data_connection-95ff2033a8faa5f3ba41376c0f6dd32a.jpg)
+
+In this tutorial, we will delve into the essential steps for creating a natural language model. We'll begin by understanding the significance of API keys and utilizing environment variables to ensure security and privacy in our applications. Next, we'll dive into document loading, mastering the handling of various file types and data sources. Following that, we'll tackle document splitting for efficient processing. We'll then proceed to create vector stores and embeddings, crucial for representing the semantic meaning of words. Afterward, we'll explore information retrieval techniques and question-answering capabilities, culminating in the implementation of a chat system based on our model. 
+
+Finally, we'll draw conclusions on the challenges and possibilities within this fascinating field of natural language processing.
+
+## API Key and Environment Variables
+
+Creating the API key from OPENAI, [here](https://platform.openai.com/account/api-keys).
+
+Once you have obtained the API key, it needs to be securely stored.
+
+There are various methods for loading this API key. One approach is to utilize environment files, which should ideally be private and included in the `.gitignore` if working in a collaborative environment. Github, for instance, detects if any keys are uploaded to the platform, triggering an alert and disabling the API key, necessitating the creation of a new one. The key can be manually entered as well.
+
+### `Dotenv`
+
+For this method, you can create a `.env` file in the working environment and list the variables as follows: `variable = "value_variable"`.
+
+```plaintext
+NAME_OF_VARIABLE="sk-xxxxxxxxxxxxxxxx"
+```
+
+To use it, `python-dotenv` is employed, which, through the functions `load_dotenv` and `find_dotenv`, loads the variables from the `.env` file.
+
+```python
+# `!pip install python-dotenv`
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
+
+secret_variable = os.environ['NAME_OF_VARIABLE']
+```
+
+### Colab
+
+For Colab, a form with `getpass` can be introduced, which conceals the API key when entered. However, the drawback compared to the previous method is that the API key needs to be pasted each time the file is executed.
+
+```{python}
+# !pip install openai
+import getpass, openai, os
+api_key = getpass.getpass(prompt="OPENAI - KEY: ")
+openai.apikey = api_key
+os.environ["OPENAI_API_KEY"] = api_key
+```
+
+## Document Loading
+
+When it comes to loading documents, two scenarios must be considered: whether the information will be extracted from the web or if it's within our working environment. In the former case, it's possible (although `langchain` already has these cases implemented) that we'll need the `requests` library to download the file or its content. For the latter case, only the relative or absolute path of the file is sufficient.
+
+All documents follow this structure, returning a list of `Document` objects containing two sub-objects: `page_content`, which is the text within, and `metadata`.
+
+```python
+from langchain.document_loaders import `Method`
+file = Method(file_path)
+file_read = file.lod()
+print(file_read[0])
+Document(
+    page_content: "text",
+    metadata: {"source": file_path, ...}
+)
+```
+
+### PDFs
+
+For PDF files, it's already implemented to read the document by URL and local path.
+
+```{python}
+from langchain.document_loaders import PyPDFLoader
+loader = PyPDFLoader("https://arxiv.org/pdf/2103.15348.pdf")
+pages = loader.load()
+
+print(pages[0].page_content[:100])
+print(pages[0].metadata)
+```
+
+### Web Plain Text
+
+For plain text from a URL, the `WebBaseLoader` can be utilized.
+
+```{python}
+from langchain.document_loaders import WebBaseLoader
+loader = WebBaseLoader("https://raw.githubusercontent.com/basecamp/handbook/master/getting-started.md")
+loader.load()
+```
+
+### JSON
+
+```python
+from langchain_community.document_loaders import JSONLoader
+loader = JSONLoader(
+    file_path="",
+    jq_schema='.messages[].content',
+    text_content=False)
+
+data = loader.load()
+```
+
+For other documents, the documentation of [Langchain - Document Loaders](https://python.langchain.com/docs/modules/data_connection/document_loaders/) can be referred to.
+
+## Document Splitting
+
+Splitting the text of a document in LLM (Deep Learning Language Models) can be advantageous for several reasons. Firstly, it helps manage long documents, as LLMs may struggle with processing very large texts due to memory constraints or computational limitations. It improves contextual representation by capturing local contextual relationships more effectively. 
+
+All methods of `langchain.text_splitter` have the following parameters
+
+- `separator="\n"`: Character used as a separator between parts of the text (e.g., line breaks).
+- `chunk_size=100`: Maximum size of each text fragment.
+- `chunk_overlap=20`: Overlap of characters between consecutive fragments.
+- `length_function`: A function that may dynamically adjust the fragment size, though its specific function is unclear without further context.
+
+
+
+### Split by character
+
+Splits text based on a user defined character. 
+
+```{python}
+from langchain.document_loaders import WebBaseLoader
+
+markdown = WebBaseLoader("https://raw.githubusercontent.com/basecamp/handbook/master/how-we-work.md")
+markdown_doc = markdown.load()
+text_markdown = markdown_doc[0].page_content
+print(text_markdown[:500])
+```
+
+```{python}
+from langchain.text_splitter import CharacterTextSplitter
+
+text_splitter = CharacterTextSplitter(
+    separator="\n\n",
+    chunk_size=1000,
+    chunk_overlap=200,
+    length_function=len,
+    is_separator_regex=False,
+)
+
+text_splitted = text_splitter.split_text(text_markdown[0].page_content)
+print(text_splitted[0])
+```
+
+
+### Split for markdown
+
+Splits text based on Markdown-specific characters. Notably, this adds in relevant information about where that chunk came from (based on the Markdown)
+
+We can use `MarkdownHeaderTextSplitter` to preserve header metadata in our chunks, as show below.
+
+```{python}
+from langchain.text_splitter import MarkdownHeaderTextSplitter
+headers_to_split_on = [
+    ("#", "Header 1"),
+    ("##", "Header 2"),
+    ("###", "Header 3"),
+]
+
+markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+
+md_header_splits = markdown_splitter.split_text(text_markdown[0].page_content)
+md_header_splits[:2]
+```
+
+
+### Split for Code
+
+Splits text based on characters specific to coding languages.
+
+```{python}
+from langchain.text_splitter import (
+    Language,
+    RecursiveCharacterTextSplitter,
+)
+PYTHON_CODE = """
+def hello_world():
+    print("Hello, World!")
+
+# Call the function
+hello_world()
+"""
+python_splitter = RecursiveCharacterTextSplitter.from_language(
+    language=Language.PYTHON, chunk_size=50, chunk_overlap=0
+)
+python_docs = python_splitter.create_documents([PYTHON_CODE])
+python_docs
+```
+
+```{python}
+RecursiveCharacterTextSplitter.get_separators_for_language(Language.PYTHON)
+```
+
+
+
+
+## Embedding and Vectorstores (Storage)
+
+### Embeddings
+
+Embeddings are vector representations of words in a dimensional space, learned during training. They capture semantic and contextual meaning to facilitate the model's understanding and processing of the text.
+
+The base Embeddings class in LangChain provides two methods: one for embedding documents and one for embedding a query. The former takes as input multiple texts, while the latter takes a single text. The reason for having these as two separate methods is that some embedding providers have different embedding methods for documents (to be searched over) vs queries (the search query itself).
+
+**Example:**
+
+```{python}
+from langchain.embeddings.openai import OpenAIEmbeddings
+embedding = OpenAIEmbeddings()
+embeddings = embedding.embed_documents(
+    [
+        "Hi there!",
+        "Hello"
+    ]
+)
+len(embeddings), len(embeddings[0])
+```
+
+This code snippet demonstrates how to use the `OpenAIEmbeddings` class from LangChain to embed multiple documents. It initializes an instance of the class, embeds the provided documents, and prints the length of the embeddings along with a sample of the first embedding vector.
+
+```{python}
+text_embedding = embeddings[0]
+print("length: ", len(text_embedding), "\nvector_sample: " ,text_embedding[:3])
+```
+
+This code snippet further explores the embeddings obtained in the previous example. It prints the length of the first embedding vector and a sample of its elements.
+
+```{python}
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+loader = PyPDFLoader("https://arxiv.org/pdf/2103.15348.pdf")
+pages = loader.load()
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size = 1500,
+    chunk_overlap = 150
+)
+
+splits = text_splitter.split_documents(pages)
+```
+
+Lastly, this code snippet demonstrates how to use the `RecursiveCharacterTextSplitter` class from LangChain to split documents into smaller chunks. It loads a PDF document from a URL, splits it into chunks, and stores the resulting chunks in the `splits` variable.
+
+
+
+
+
+### Vectorstores
+
+To build our database, we need an array of [Documents].
+
+With Chroma, this will be done locally. Note that there is no directory referencing our Chroma database.
+
+```{python}
+os.listdir()
+```
+
+Next, we'll create the vectorstore considering the document split, embedding method, and the location of the vectorstore.
+
+```{python}
+from langchain.vectorstores import Chroma
+
+persist_directory = './vector_db_chroma/'
+
+!rm -rf ./docs/chroma  # remove old database files if any
+
+vectordb = Chroma.from_documents(
+    documents=splits,
+    embedding=embedding,
+    persist_directory=persist_directory
+)
+
+print(vectordb._collection.count())
+```
+
+Searches conducted in the Chroma database will yield pieces of information that match the "intention" of the question, which will subsequently serve for response generation.
+
+```{python}
+query_1 = vectordb.similarity_search(
+    "What are some of the challenges hindering the widespread adoption and reuse of innovations in document image analysis (DIA), particularly in comparison to disciplines like natural language processing and computer vision?",
+    k=3,
+)
+query_2 = vectordb.similarity_search(
+    "How does the LayoutParser library address the challenges mentioned in the summary and contribute to streamlining the usage of deep learning in DIA research and applications?",
+    k=3,
+)
+# print(query_1)
+```
+
+```{python}
+query_1[0].page_content[:100]
+```
+
+## Retrieval
+
+A vector store retriever utilizes a vector store for document retrieval. It acts as a simplified interface to the vector store class, enabling compatibility with the retriever interface. This retriever leverages search functionalities provided by the vector store, such as similarity search and MMR, to retrieve texts stored within it.
+
+```{python}
+question = "What are some of the challenges hindering the widespread adoption and reuse of innovations in document image analysis (DIA), particularly in comparison to disciplines like natural language processing and computer vision?"
+retriever = vectordb.as_retriever()
+docs = retriever.get_relevant_documents(question)
+docs
+```
+
+### Maximum Marginal Relevance Retrieval
+
+By default, the vector store retriever uses similarity search. If the underlying vector store supports maximum marginal relevance (`mmr`) search, you can specify that as the search type.
+
+```{python}
+retriever = vectordb.as_retriever(search_type="mmr")
+docs = retriever.get_relevant_documents(question)
+docs
+```
+
+### Similarity Score Threshold Retrieval
+
+Sets a similarity score threshold and only returns documents with a score above that threshold.
+
+```{python}
+retriever = db.as_retriever(
+    search_type="similarity_score_threshold", search_kwargs={"score_threshold": 0.5}
+)
+docs = retriever.get_relevant_documents(question)
+docs
+```
+
+<!-- retrieval -->
+
+## Question Answering
+
+Let's review the model setup. We have our vectorstore, we ask a question, and the vectorstore returns relevant elements to answer the question. Since these are parts of the document, they need to be passed through an LLM engine to structure (`chain`) a coherent response. Typically, within these models, there exists a parameter called `temperature` where 0 is the most precise and 1 makes the model "ultra creative." This final step can be done in various ways.
+
+- `stuff`: Prepares and organizes input data or parameters.
+- `map_reduce`: Distributes computation tasks across multiple nodes or processes, often used for parallel processing and aggregating results.
+- `refine`: Improves the quality or accuracy of output by iteratively adjusting parameters or fine-tuning the model.
+
+
+```{python}
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA as RQa
+
+llm_model = "gpt-3.5-turbo"
+llm = ChatOpenAI(model_name=llm_model, temperature=0)
+question = "What are some of the challenges hindering the widespread adoption and reuse of innovations in document image analysis (DIA), particularly in comparison to disciplines like natural language processing and computer vision?"
+```
+
+### Stuff
+
+```{python}
+stuff = RQa.from_chain_type(
+    llm, retriever=vectordb.as_retriever(),
+    chain_type="stuff" # default
+)
+stuff_result = stuff({"query": question})
+stuff_result['result']
+```
+
+### Map Reduce
+
+```{python}
+m_p = RQa.from_chain_type(
+    llm, retriever=vectordb.as_retriever(),
+    chain_type="map_reduce"
+)
+mp_result = m_p({"query": question})
+mp_result['result']
+```
+
+### Refine
+
+```{python}
+refine = RQa.from_chain_type(
+    llm, retriever=vectordb.as_retriever(),
+    chain_type="refine" 
+)
+refine_result = refine({"query": question})
+refine_result['result']
+```
+
+### Question Answering With Prompt
+
+Now, a [prompt template](https://python.langchain.com/docs/modules/model_io/prompts/quick_start#prompttemplate) will be created to guide us in answering the question, instructing the model on how to use the provided context to generate concise answers.
+
+```{python}
+from langchain.prompts import PromptTemplate
+
+# Build prompt
+template = """Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Use three sentences maximum. Keep the answer as concise as possible. Always say "thanks for asking!" at the end of the answer. 
+{context}
+Question: {question}
+Helpful Answer:"""
+QA_CHAIN_PROMPT = PromptTemplate.from_template(template)
+```
+
+```{python}
+# Run chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm,
+    retriever=vectordb.as_retriever(),
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": QA_CHAIN_PROMPT},
+)
+promt_result = qa_chain({"query": question})
+promt_result["result"]
+```
+
+
+
+## Chat
+
+After completing the previous step, we have all the relevant information for the natural language model to interpret and provide a response considering the context and the question.
+
+To summarize, first, we need to set up the environment by providing the API key for OpenAI and adding it to our virtual environment.
+
+```{python}
+import getpass, openai, os
+api_key = getpass.getpass(prompt="OPENAI - API-KEY: ")
+openai.apikey = api_key
+os.environ["OPENAI_API_KEY"] = api_key
+```
+
+Next, we load the document, in this case, we'll use a thesis from PUCP (https://tesis.pucp.edu.pe/repositorio/handle/20.500.12404/27052).
+
+```{python}
+from langchain.document_loaders import PyPDFLoader
+
+url_pdf = "https://tesis.pucp.edu.pe/repositorio/bitstream/handle/20.500.12404/27040/HUAMAN%c3%8d_LLAMOCCA_ROGER_ANGEL_DESARROLLO_COMPETENCIAS.pdf?sequence=1&isAllowed=y"
+loader = PyPDFLoader(url_pdf)
+pages = loader.load()
+```
+
+Then, we define the splitting module to generate text chunks with the previously loaded `Document`.
+
+```{python}
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size = 1500,
+    chunk_overlap = 150
+)
+splits = text_splitter.split_documents(pages)
+len(splits)
+```
+
+Finally, we generate the vector database (thesis) using the OPENAI embedding.
+
+```{python}
+from langchain.vectorstores import Chroma
+from langchain.embeddings.openai import OpenAIEmbeddings
+embedding = OpenAIEmbeddings()
+
+persist_directory = './thesis_chroma/'
+
+!rm -rf ./thesis_chroma  # remove old database files if any (linux, Mac)
+
+vectordb = Chroma.from_documents(
+    documents=splits,
+    embedding=embedding,
+    persist_directory=persist_directory
+)
+```
+
+If you want to retrieve the previously created vectorbase, you only need to locate the directory of the database and pass the embedding method used.
+
+```{python}
+vectordb = Chroma(persist_directory=persist_directory, embedding_function = embedding)
+```
+
+```{python}
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA as RQa
+
+llm_model = "gpt-3.5-turbo"
+llm = ChatOpenAI(model_name = llm_model, temperature = 0)
+question = input("Enter the question to answer: ")
+```
+
+```{python}
+stuff = RQa.from_chain_type(
+    llm, retriever = vectordb.as_retriever(),
+    chain_type = "stuff" # default
+)
+stuff = result = stuff({"query": question})
+stuff = result['result']
+```
+
+
+## Final Result
+
+
+
+```{python}
+import getpass, openai, os
+from langchain.document_loaders import PyPDFLoader
+from langchain.vectorstores import Chroma
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA as RQa
+
+api_key = getpass.getpass(prompt="Insert your OPENAI - API-KEY: ")
+openai.apikey = api_key
+os.environ["OPENAI_API_KEY"] = api_key
+
+
+url_pdf = input("Insert the pdfurl: ")
+
+loader = PyPDFLoader(url_pdf)
+pages = loader.load()
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size = 1500,
+    chunk_overlap = 150
+)
+splits = text_splitter.split_documents(pages)
+embedding = OpenAIEmbeddings()
+
+persist_directory = './thesis_chroma/'
+
+!rm -rf ./thesis_chroma  # remove old database files if any (linux, Mac)
+
+vectordb = Chroma.from_documents(
+    documents=splits,
+    embedding=embedding,
+    persist_directory=persist_directory
+)
+
+
+llm_model = "gpt-3.5-turbo"
+llm = ChatOpenAI(model_name = llm_model, temperature = 0)
+while True:
+    question = input("Ingrese la pregunta a contestar: ")
+    if question == "":
+        break
+    stuff = RQa.from_chain_type(
+        llm, retriever = vectordb.as_retriever(),
+        chain_type = "stuff" # default
+    )
+    stuff_result = stuff({"query": question})
+    result = stuff_result['result']
+    print(result, end='')
+```
+
+
+

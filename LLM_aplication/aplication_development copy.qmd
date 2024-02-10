@@ -88,8 +88,6 @@ print(completion.model_dump_json(indent=2))
 
 *Example*
 
-<!-- codigo -->
-
 First, we need to call the class, create the OpenAI client, and pass our api_key as a parameter. However, if we are using environment files `.env`, we only need to have the variable name correctly set, in this case `OPENAI_API_KEY`. In which we can define our api_key.
 
 ![](https://imgs.search.brave.com/j6GBXNcpKlQxBOvfNFyojLGZjzHPUAYi71MoT5kmFes/rs:fit:860:0:0/g:ce/aHR0cHM6Ly9sYWJz/LnRoaW5rdGVjdHVy/ZS5jb20vc3RvcmFn/ZS9pbWFnZS01LnBu/Zw)
@@ -109,6 +107,7 @@ To directly access our response, a function is created which takes the question 
 
 <!-- codigo -->
 
+
 ### Open AI and LangChain
 
 Fortunately, LangChain updates its code as its dependencies do, so in the latest versions of LangChain, this migration is already implemented.
@@ -120,7 +119,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 
 chat = ChatOpenAI(temperature=0.0, model=llm_model)
-# chat # callable([list])
+chat # callable([list])
 
 template_string = """"""
 prompt_template = ChatPromptTemplate.from_template(template_string)
@@ -138,74 +137,112 @@ Finally, we get the response.
 response = chat(message)
 print(response.content)
 ```
+```
+
+*Example*
+
+Primero debemos de llamar a la clase,  crear el cliente de OpenAI, y pasar como 
+parametro nuestra api_key sin embargo si se esta usando archivos de entorno `.env` solo se debe tener correctamente el nombre de la variable en este caso `OPENAI_API_KEY`. En el cual podemos definir nuestra api_key
+
+![](https://imgs.search.brave.com/j6GBXNcpKlQxBOvfNFyojLGZjzHPUAYi71MoT5kmFes/rs:fit:860:0:0/g:ce/aHR0cHM6Ly9sYWJz/LnRoaW5rdGVjdHVy/ZS5jb20vc3RvcmFn/ZS9pbWFnZS01LnBu/Zw)
+
+Para poder acceder a la variable debemos de correr el siguiente codigo y llamar a nuestra variable de entorno
+
+```{python}
+from google.colab import userdata
+import os
+api_key = userdata.get('OPENAI_API_KEY')
+os.environ['OPENAI_API_KEY'] = api_key
+```
+
+Para poder acceder directamente a nuestra respuesta, se crea una funcion la cual toma como parametros la pregunta (o prompt) y el modelo que queremos usar, recalcando como ahora se usa respuestas de pydantic entonces debemos acceder a la respuesta con los atributos en este caso es `completion.choices[0].message.content`. Problemos con una pregunta general y un prompt.
+
+*Example*
 
 
+### Open AI and LangChain
+
+LangChain afortunadamente actualiza su codigo conforme sus dependencias tambien
+lo hacen, por lo que en las ultimas versiones de langchain ya esta implementada esta migracion.
+
+Para poder usar esta forma de llamar a openai, podemos replicar el anterior ejemplo con prompts, primero llamamos al modulo de `ChatOpenAI`, y definimos el prompt con las variables que queremos, y lo guardamos en la variable message.
+
+```{python}
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+
+chat = ChatOpenAI(temperature=0.0, model=llm_model)
+chat # callable([list])
+
+template_string = """"""
+prompt_template = ChatPromptTemplate.from_template(template_string)
+variable1
+variable2
+
+message = prompt_template.format_messages(
+    # 
+)
+```
+
+Por ultimo obtenemos la respuesta.
+
+```{python}
+response = chat(message)
+print(response.content)
+```
 
 ## Output Parser
 
-In some cases, you may want the response type to have a certain structure, such as JSON. However, when we obtain the response from LangChain, we notice that the result is a string and we cannot access its elements.
+En algunos casos se querra que el tipo de respuesta tenga alguna estructura, por ejemplo un json, sin embargo cuando obtenemos la respuesta de langchain notamos que el resultado es un String y no podemos acceder a los elementos. 
 
-Fortunately, we can convert the output string to a Python dictionary. First, we import `ResponseSchema` and `StructuredOutputParser`. Then, we create the elements that we want to extract with a description so that the model knows what to parse and format as required. Finally, we pass this through the format instructions within the initial prompt.
 
-```{python}
-from langchain.schema import ResponseSchema
-from langchain.parsers import StructuredOutputParser
+Afortunadamente se puede pasar el output string a un dicionario de python, primero importamos `ResponseSchema` y `StructuredOutputParser`, luego creamos los elemetos que se quiere extraer con una descripcion para que el modelo sepa que colocar y parsear al typo requerido, por ultimo pasamos esto por las instrucciones de formato, dentro del prompt inicial.
 
-# Define the schema for the response
-schema = ResponseSchema(
-    element1=Description("Description of element1"),
-    element2=Description("Description of element2"),
-    ...
-)
 
-# Parse the output string to a Python dictionary
-parser = StructuredOutputParser(schema)
-parsed_output = parser.parse(response.content)
+<!-- codigo -->
 
-parsed_output
-```
+Cuando se corra el modelo se obtiene una respuesta tal cual se puso en las instrucciones de formato pasamos por el metodo parse del contenido y este retornara el diccionario de python.
 
-When the model is run, the response obtained is as per the format instructions provided. We then pass it through the `parse` method of the content, which returns the Python dictionary.
+<!-- Adicionalmente se puede consultar https://www.youtube.com/watch?v=I4mFqyqFkxg -->
 
 ## LangChain Memory
 
-When interacting with `ChatGPT`, the responses from one interaction to the next are often related because `ChatGPT` contextualizes its responses, referencing previous inputs and outputs to formulate the latest response.
+usualmente cuando interactuamos con `ChatGPT`, las respuestas que tenemos de una a la siguiente estan relacionadas ya que `ChatGOT` trabaja contextualizando (chains) y tomando como referencia los inputs y outputs anteriores para formular la ultima respuesta.
 
 ![](https://python.langchain.com/assets/images/memory_diagram-0627c68230aa438f9b5419064d63cbbc.png)
 
-To simulate this scenario with LangChain, we utilize four types of memory:
+Para poder simular este escenario con LangChain, usaremos 4 tipos de memoria y 
 
 - ConversationBufferMemory
 - ConversationBufferWindowMemory
 - ConversationTokenBufferMemory
 - ConversationSummaryMemory
 
-To use these methods, we can refer to the following example:
+Para poder usar estos metodos podemos usar esta pequena referencia
 
 ```{python}
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import ConversationChains
+from langchain.chat_models import ChatOpenAI #///llm model
+from langchain.chains import ConversationChains # chain
 
 llm_model = 'gpt-3.5-turbo'
 llm = ChatOpenAI(temperature=0.0, model=llm_model)
 ```
 
 ```python
-# Reference only
+# ///// only reference
 from langchain.memory import Conversation{Method}Memory as Memory
 
 llm = ChatOpenAI(temperature=0.0, model='gpt-3.5-turbo')
 memory = Memory()
 conversation = ConversationChains(
-    llm=llm,
-    memory=memory
+    llm = llm,
+    memory = memory
 )
 
-conversation.predict(input='Question')  # Add memory (input, output)
-memory.load_memory_variables({})  # Returns memory (history)
-memory.save_context({"input": "user_content", "output": "AI response"})  # Add manual memory
+conversation.predict(input='Question') # Add memory (input, output)
+memory.load_memory_variables({}) # Returns memory (history)
+memory.save_context({"input": "user_content", "output": "AI response"}) # Add manual memory
 ```
-
 
 ### ConversationBufferMemory
 
@@ -217,7 +254,7 @@ from langchain.memory import ConversationBufferMemory as Memory
 memory = Memory()
 conversation = ConversationChain(
     llm=llm, 
-    memory=memory,
+    memory = memory,
     verbose=True
 )
 
@@ -237,19 +274,21 @@ conversation.load_memory_variables({})
 `ConversationBufferWindowMemory` keeps a list of the interactions of the conversation over time. It only uses the last K interactions. This can be useful for keeping a sliding window of the most recent interactions, so the buffer does not get too large.
 
 ```{python}
-from langchain.memory import ConversationBufferWindowMemory as Memory 
+from langchain.memory import ConversationBufferMemory as Memory 
 
 memory = Memory()
 conversation = ConversationChain(
     llm=llm, 
-    memory=memory,
+    memory = memory,
     verbose=True
 )
 
+memory = ConversationBufferWindowMemory( k=1)
 memory.save_context({"input": "hi"}, {"output": "whats up"})
 memory.save_context({"input": "not much you"}, {"output": "not much"})
 
 memory.load_memory_variables({})
+
 ```
 
 ### ConversationTokenBufferMemory
@@ -257,13 +296,13 @@ memory.load_memory_variables({})
 `ConversationTokenBufferMemory` keeps a buffer of recent interactions in memory, and uses token length rather than number of interactions to determine when to flush interactions.
 
 ```{python}
-from langchain.memory import ConversationTokenBufferMemory as Memory 
+from langchain.memory import ConversationBufferMemory as Memory 
 
-memory = Memory(max_token_limit=60)
+memory = Memory(max_token_limit = 60)
 
 conversation = ConversationChain(
     llm=llm, 
-    memory=memory,
+    memory = memory,
     verbose=False
 )
 
@@ -276,7 +315,7 @@ conversation_with_summary.predict(input="Just working on writing some code!")
 `ConversationSummaryBufferMemory` combines the two ideas. It keeps a buffer of recent interactions in memory, but rather than just completely flushing old interactions it compiles them into a summary and uses both. It uses token length rather than number of interactions to determine when to flush interactions.
 
 ```{python}
-from langchain.memory import ConversationSummaryMemory as Memory
+from langchain.memory import ConversationBufferMemory as Memory
 
 schedule = "There is a meeting at 8am with your product team. \
 You will need your powerpoint presentation prepared. \
@@ -299,46 +338,60 @@ conversation.predict(input="What would be a good demo to show?")
 memory.load_memory_variables({})
 ```
 
-
 ## LangChain: Chains
 
-Previously, we used chains, but in a quick manner to obtain a response from the LLM model.
+Anteriormente se uso cadenas, pero de manera rapida para poder obtener una respuesta 
+del modelo llm.
 
-Chains in LangChain encompass sequences of function calls, whether to an LLM, a tool, or a data preprocessing step. LCEL (LangChain Execution Language) is the primary method for constructing these chains, offering both custom and off-the-shelf options.
-
-Combine multiple chains where the output of one chain is the input of the next chain.
-
-- **LLMchain**: It's just the combination of the LLM and the prompt (simple chain).
+Chains in LangChain encompass sequences of function calls, whether to an LLM, a tool, or a data preprocessing step. LCEL (LangChain Execution Language) is the primary method for constructing these chains, offering both custom and off-the-shelf options. 
 
 
-- **Simple Sequential Chain**: A chain where one chain's output is another chain's input, resulting in a final output.
+
+Combine multiple chains where the output of the one chain is the input of the next chain
+
+- LLMchain:  It's just the combination of the LLM and the prompt (simple chain)
+
+- simple sequatial chain:  un cadena tiene un output el cual es el input de la cadena 2 el cual tiene el output final
 
 ![](https://miro.medium.com/v2/resize:fit:1400/1*sYdb7ca9vcmDV0gOiNaruQ.png)
 
-- **Sequential Chain**: Similar to the simple sequential chain but allows multiple input variables for each step, useful for more complex downstream chains.
+- sequential chain: Comparing it to the above chain, you can notice that any 
+step in the chain can take in multiple input variables. 
+This is useful when you have more complicated downstream 
+chains that need to be a composition of multiple 
+previous chains. 
 
 ![](https://av-eks-lekhak.s3.amazonaws.com/media/__sized__/article_images/7_Bpn6EWD-thumbnail_webp-600x300.webp)
 
-- **Router Chain**: Utilizes an LLM to route between potential options, deciding which sub-chain to pass input to based on input characteristics.
+- Router chain: This chain uses an LLM to route between potential options. If you have multiple sub chains, 
+each of which specialized for a particular type of input, 
+you could have a router chain which first 
+decides which subchain to pass it to and then passes it to 
+that chain. 
 
 ![](https://miro.medium.com/v2/resize:fit:700/1*0TDSAfaL2Q46TnFWkQTagg.jpeg)
 
 ```{python}
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate as CPrompt
-from langchain.chains import LLMChain, SimpleSequentialChain, SequentialChain
-from langchain.chains.router import MultiPromptChain, LLMRouterChain, RouterOutputParser
+from langchain.chains import LLMChain # simple chain
+from langchain.chains import SimpleSequentialChain # Simple Sequential Chain
+from langchain.chains import SequentialChain # Sequential Chain
+# Router Chain
+from langchain.chains.router import MultiPromptChain
+from langchain.chains.router.llm_router import LLMRouterChain,RouterOutputParser
 from langchain.prompts import PromptTemplate
 
 llm_model = 'gpt-3.5-turbo'
 llm = ChatOpenAI(temperature=0.9, model=llm_model)
+
 ```
 
 ### LLM chain:
 
 ```{python}
 prompt = CPrompt.from_template("{input_}")
-chain = LLMChain(llm=llm, prompt=prompt)
+chain = LLMChain(llm = llm, prompt = prompt)
 input_ = ""
 chain.run(input_)
 ```
@@ -352,8 +405,8 @@ second_prompt = CPrompt.from_template("{input_2}")
 second_chain = LLMChain(llm=llm, prompt=second_prompt)
 
 simple_chain = SimpleSequentialChain(
-    chains=[first_chain, second_chain],
-    verbose=True
+    chains = [first_chain, second_chain],
+    verbose = True
 )
 
 input_1 = ""
@@ -361,13 +414,87 @@ input_1 = ""
 simple_chain.run(input_1)
 ```
 
+### SequentialChain
 
-### Router Chain: Multi-Prompt Router
-
-#### Contextual Inputs and Prompts
+chain one
 
 ```{python}
-# Templates for different domains
+llm = ChatOpenAI(temperature=0.9, model=llm_model)
+
+# prompt template 1: translate to english
+first_prompt = ChatPromptTemplate.from_template(
+    "Translate the following review to english:"
+    "\n\n{Review}"
+)
+# chain 1: input= Review and output= English_Review
+chain_one = LLMChain(llm=llm, prompt=first_prompt, 
+                     output_key="English_Review"
+                    )
+```
+
+Chain Two
+
+```{python}
+second_prompt = ChatPromptTemplate.from_template(
+    "Can you summarize the following review in 1 sentence:"
+    "\n\n{English_Review}"
+)
+# chain 2: input= English_Review and output= summary
+chain_two = LLMChain(llm=llm, prompt=second_prompt, 
+                     output_key="summary"
+                    )
+```
+
+Chain Three
+
+```{python}
+# prompt template 3: translate to english
+third_prompt = ChatPromptTemplate.from_template(
+    "What language is the following review:\n\n{Review}"
+)
+# chain 3: input= Review and output= language
+chain_three = LLMChain(llm=llm, prompt=third_prompt,
+                       output_key="language"
+                      )
+```
+
+Chain Four
+
+```{python}
+# prompt template 4: follow up message
+fourth_prompt = ChatPromptTemplate.from_template(
+    "Write a follow up response to the following "
+    "summary in the specified language:"
+    "\n\nSummary: {summary}\n\nLanguage: {language}"
+)
+# chain 4: input= summary, language and output= followup_message
+chain_four = LLMChain(llm=llm, prompt=fourth_prompt,
+                      output_key="followup_message"
+                     )
+```
+
+Run with review input
+
+```{python}
+review = "Je trouve le goût médiocre. La mousse ne tient pas, c'est bizarre. J'achète les mêmes dans le commerce et le goût est bien meilleur...\nVieux lot ou contrefaçon !?"
+
+# overall_chain: input= Review 
+# and output= English_Review,summary, followup_message
+overall_chain = SequentialChain(
+    chains=[chain_one, chain_two, chain_three, chain_four],
+    input_variables=["Review"],
+    output_variables=["English_Review", "summary","followup_message"],
+    verbose=True
+)
+
+overall_chain(review)
+```
+
+### Router Chain
+
+Cotextual Inputs and Prompts
+
+```{python}
 physics_template = """You are a very smart physics professor. \
 You are great at answering questions about physics in a concise\
 and easy to understand manner. \
@@ -376,6 +503,7 @@ that you don't know.
 
 Here is a question:
 {input}"""
+
 
 math_template = """You are a very good mathematician. \
 You are great at answering math questions. \
@@ -398,6 +526,7 @@ and judgements.
 Here is a question:
 {input}"""
 
+
 computerscience_template = """ You are a successful computer scientist.\
 You have a passion for creativity, collaboration,\
 forward-thinking, confidence, strong problem-solving capabilities,\
@@ -412,19 +541,33 @@ time complexity and space complexity.
 Here is a question:
 {input}"""
 
-# Information about each prompt
 prompt_infos = [
-    {"name": "physics", "description": "Good for answering questions about physics", "prompt_template": physics_template},
-    {"name": "math", "description": "Good for answering math questions", "prompt_template": math_template},
-    {"name": "History", "description": "Good for answering history questions", "prompt_template": history_template},
-    {"name": "computer science", "description": "Good for answering computer science questions", "prompt_template": computerscience_template}
+    {
+        "name": "physics", 
+        "description": "Good for answering questions about physics", 
+        "prompt_template": physics_template
+    },
+    {
+        "name": "math", 
+        "description": "Good for answering math questions", 
+        "prompt_template": math_template
+    },
+    {
+        "name": "History", 
+        "description": "Good for answering history questions", 
+        "prompt_template": history_template
+    },
+    {
+        "name": "computer science", 
+        "description": "Good for answering computer science questions", 
+        "prompt_template": computerscience_template
+    }
 ]
 ```
 
-#### Making the Prompt Destination Templates
+Make the prompts destination templates
 
 ```{python}
-# Create chains for each prompt template
 destination_chains = {}
 for p_info in prompt_infos:
     name = p_info["name"]
@@ -433,19 +576,18 @@ for p_info in prompt_infos:
     chain = LLMChain(llm=llm, prompt=prompt)
     destination_chains[name] = chain  
     
-# Create descriptions for prompt destinations
 destinations = [f"{p['name']}: {p['description']}" for p in prompt_infos]
 destinations_str = "\n".join(destinations)
 
-# Default prompt and chain
 default_prompt = ChatPromptTemplate.from_template("{input}")
 default_chain = LLMChain(llm=llm, prompt=default_prompt)
+
 ```
 
-#### Multi-Prompt Router Template
+Template for multi prompt router template
+
 
 ```{python}
-# Template for multi-prompt router
 MULTI_PROMPT_ROUTER_TEMPLATE = """Given a raw text input to a \
 language model select the model prompt best suited for the input. \
 You will be given the names of the available prompts and a \
@@ -456,16 +598,16 @@ it will ultimately lead to a better response from the language model.
 << FORMATTING >>
 Return a markdown code snippet with a JSON object formatted to look like:
     ```json
-    {{
-        "destination": string \ name of the prompt to use or "DEFAULT",
-        "next_input": string \ a potentially modified version of the original input
-    }}
-    \```
+    {{{{
+        "destination": string \ name of the prompt to use or "DEFAULT"
+        "next_inputs": string \ a potentially modified version of the original input
+    }}}}
+    ```\
 
 REMEMBER: "destination" MUST be one of the candidate prompt \
 names specified below OR it can be "DEFAULT" if the input is not\
 well suited for any of the candidate prompts.
-REMEMBER: "next_input" can just be the original input \
+REMEMBER: "next_inputs" can just be the original input \
 if you don't think any modifications are needed.
 
 << CANDIDATE PROMPTS >>
@@ -477,10 +619,8 @@ if you don't think any modifications are needed.
 << OUTPUT (remember to include the ```json)>>"""
 ```
 
-#### Creating the Final Router Prompt and Chain
-
+and finally create the final router prompt, router_chain 
 ```{python}
-# Create the router prompt template
 router_template = MULTI_PROMPT_ROUTER_TEMPLATE.format(
     destinations=destinations_str
 )
@@ -490,34 +630,33 @@ router_prompt = PromptTemplate(
     output_parser=RouterOutputParser(),
 )
 
-# Create the router chain
 router_chain = LLMRouterChain.from_llm(llm, router_prompt)
 ```
 
-#### Create the Multi-Prompt Chain
+Create the llm interpretter
 
 ```{python}
-# Create the multi-prompt chain
 chain = MultiPromptChain(
     router_chain=router_chain, 
     destination_chains=destination_chains, 
     default_chain=default_chain, 
-    verbose=True
+    verbose=True # False if you don't want to see the procces of the chain
 )
 ```
 
-#### Test the Interpreter
+*Test our interpreter*
 
 ```{python}
-# Test for Physics Interpreter
+# Physic Interpreter
 chain.run("What is black body radiation?")
 ```
 
 ```{python}
-# Test for Math Interpreter
+# Math interpreter
 chain.run("what is square of (16)")
 ```
 
+Call the default chain which itself is just a LLMChain
 ```{python}
 # Not related / Biology
 chain.run("Why does every cell in ourt body contain DNA?")
@@ -525,53 +664,107 @@ chain.run("Why does every cell in ourt body contain DNA?")
 
 For more details consult [langchain Chains API](https://python.langchain.com/docs/modules/chains)
 
+## Agents
 
-## Agents: Toolkits and Wikipedia
+Usualmente los modelos de lenguaje natural, se basan en datos preprocesados hasta un determinado tiemp, tomando en cuenga a GPT-3.5 el cual tiene informacion hasta el anio 2022. Sin embargo la creacion de conocimiento continua o el prompt necesita de herramientas especificas, para poder utilizar esta informacion y sintetisarlo podemos usar los conocimientos previos los cuales en escencia es, tener vvarias piezas de informacion y poder crear contenido que sea relevante, la diferencia es que ahora vamos a consultar a informacion de la web y otras herramientas para poder recopilar informacion y sintetizar la informacion para responder a la consulta. 
 
-### Introduction to Agents
 
-Natural Language Models (NLMs) like GPT-3.5 often rely on preprocessed data up to a certain time, typically until 2022 for GPT-3.5. However, continuous knowledge creation or prompt-specific information requires specific tools to utilize this information and synthesize it. Essentially, agents gather various pieces of information and synthesize relevant content, potentially consulting web sources and other tools to respond to queries effectively.
+### Wikipedia
 
-### Wikipedia Tool
-
-When a query is made to the language model endpoint and it doesn't find relevant information, the "tools" will search for information in other specified sources to generate context and responses to the question. To simulate this hypothetical case using information found on Wikipedia, we can utilize the `tools` components of LangChain. Specifically, to integrate Wikipedia functionality, we can consult more tools in [`Components.tools`](https://python.langchain.com/docs/integrations/tools).
+En especifico, cuando se hace alguna consulta al modelo de llm, y no encuentra en el endpoint, los "`tools`" buscara informacion en otras fuentes de informacion que especifiquemos para poder generar el contexto y respuesta a la pregunta. Para ello vamos a usar los componentes `tools` de langchain, en especifico para simular el caso hipotetico informacion que se encuentra en wikypedia, se puede consultar mas tools en [`Components.tools`](https://python.langchain.com/docs/integrations/tools)
 
 ```{python}
-# Import necessary methods and functions
+# Methods and Fucntions
 from langchain.agents.agent_toolkits import create_python_agent
 from langchain.agents import load_tools, initialize_agent
 from langchain.agents import AgentType
 from langchain.tools.python.tool import PythonREPLTool
 from langchain.python import PythonREPL
 from langchain.chat_models import ChatOpenAI
+```
 
-# Define the language model
+
+```{python}
 llm_model = 'gpt-3.5-turbo'
 llm = ChatOpenAI(temperature=0, model=llm_model)
-
-# Load Wikipedia tool into a list of tools
+# add tools into a list
 tools = load_tools(["wikipedia"], llm=llm)
-
-# Initialize the Wikipedia agent
+# initialize agent
 wikipedia = initialize_agent(
-    tools,
+    tools,  #wiki
     llm, 
     agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION,
     handle_parsing_errors=True,
-    verbose=True  # Show verbose output
-)
+    verbose = True # show 
+    )
 ```
 
-*Examples*
+*Example*
 
-```python
-# Query about the current president of Peru
+```{python}
 wikipedia("who is the current president of Peru?")
 ```
 
-```python
-# Query about the death of Sebastian Piñera, former President of Chile
+```{python}
+# Chile: Sebastian Pinera https://en.wikipedia.org/wiki/Sebasti%C3%A1n_Pi%C3%B1era
 wikipedia("Sebastian Piñera die? cause of death")
 ```
 
-This code sets up an agent to interact with Wikipedia for retrieving information. It initializes the agent with Wikipedia as one of the tools to consult when the language model endpoint doesn't have relevant information. Then, it demonstrates how to use the agent to query information, such as the current president of Peru and details about the death of Sebastian Piñera, the former President of Chile.
+
+### Python REPL
+
+Este se usa para poder ejecutar python conforme a la pregunta que se le haga, para poder dar solucion a la respuesta
+
+```{python}
+from langchain import hub
+from langchain.agents import AgentExecutor
+from langchain_experimental.tools import PythonREPLTool
+from langchain.agents import create_openai_functions_agent
+# tools = [PythonREPLTool()]
+
+instructions = """You are an agent designed to write and execute python code to answer questions.
+You have access to a python REPL, which you can use to execute python code.
+If you get an error, debug your code and try again.
+Only use the output of your code to answer the question. 
+You might know the answer without running any code, but you should still run the code to get the answer.
+If it does not seem like you can write code to answer the question, just return "I don't know" as the answer.
+"""
+base_prompt = hub.pull("langchain-ai/openai-functions-template")
+prompt = base_prompt.partial(instructions=instructions)
+
+tools = [PythonREPLTool()]
+
+agent = create_openai_functions_agent(ChatOpenAI(temperature=0), tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+```
+
+*Example*
+
+
+```{python}
+agent_executor.invoke({"input": "What is the 10th fibonacci number?"})
+```
+
+
+```{python}
+customer_list = [
+    ["Harrison", "Chase"],
+    ["Lang", "Chain"],
+    ["Dolly", "Too"],
+    ["Elle", "Elem"],
+    ["Geoff", "Fusion"],
+    ["Trance", "Former"],
+    ["Jen", "Ayai"],
+]
+agent_executor.invoke(
+    {
+        "input": f"""
+        
+        
+        Sort these customers by \
+        last name and then first name \
+        and print the output: {customer_list}
+        """
+    }
+)
+```

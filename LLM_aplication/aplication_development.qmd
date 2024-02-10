@@ -1,6 +1,6 @@
 
 ```{python}
-%pip install openai langchain tiktoken wikipedia langchain-experimental lanchainhub docarray -q 
+%pip install openai langchain tiktoken wikipedia langchain-experimental langchainhub docarray -q 
 ```
 
 # Application Development
@@ -69,7 +69,7 @@ Regarding responses, it relies on [`pydantic models`](https://docs.pydantic.dev/
 import json
 import openai
 
-completion = openai.Completion.create(model='gpt-3.5-turbo')
+completion = openai.Completion.create(model='gpt-3.5-turbo', messages=[{}])
 print(completion['choices'][0]['text']) # /// old
 print(completion.get('usage')) #  /// old
 print(json.dumps(completion, indent=2))
@@ -79,16 +79,9 @@ from openai import OpenAI
 
 client = OpenAI()
 
-completion = client.completions.create(model='gpt-3.5-turbo')
-print(completion.choices[0].text)  #/// new
-print(dict(completion).get('usage'))    #/// new
-print(completion.model_dump_json(indent=2))
-
+completion = client.completions.create(model='gpt-3.5-turbo', messages=[{}])
+print(completion.choices[0].message.content)  #/// new
 ```
-
-*Example*
-
-<!-- codigo -->
 
 First, we need to call the class, create the OpenAI client, and pass our api_key as a parameter. However, if we are using environment files `.env`, we only need to have the variable name correctly set, in this case `OPENAI_API_KEY`. In which we can define our api_key.
 
@@ -105,9 +98,25 @@ os.environ['OPENAI_API_KEY'] = api_key
 
 To directly access our response, a function is created which takes the question (or prompt) and the model we want to use as parameters, emphasizing how responses from pydantic are now used. Therefore, we must access the response with the attributes, in this case `completion.choices[0].message.content`. Let's try with a general question and a prompt.
 
-*Example*
+```{python}
+from openai import OpenAI
 
-<!-- codigo -->
+client = OpenAI()
+
+completion = client.chat.completions.create(
+    model="gpt-3.5-turbo",
+    messages=[
+        {
+            "role": "user",
+            "content": "How do I output all files in a directory using Python?",
+        },
+    ],
+)
+print(completion.choices[0].message.content)  
+```
+
+
+
 
 ### Open AI and LangChain
 
@@ -122,14 +131,25 @@ from langchain.prompts import ChatPromptTemplate
 chat = ChatOpenAI(temperature=0.0, model=llm_model)
 # chat # callable([list])
 
-template_string = """"""
+template_string = """Translate the text \
+that is delimited by triple backticks \
+into a style that is {style}. \
+text: ```{text}```
+"""
 prompt_template = ChatPromptTemplate.from_template(template_string)
-variable1
-variable2
+variable1 = """American English \
+in a calm and respectful tone
+"""
+variable2 = """
+Arrr, I be fuming that me blender lid \
+flew off and splattered me kitchen walls \
+with smoothie! And to make matters worse, \
+the warranty don't cover the cost of \
+cleaning up me kitchen. I need yer help \
+right now, matey!
+"""
 
-message = prompt_template.format_messages(
-    # 
-)
+message = prompt_template.format_messages(style=variable1, text=variable2)
 ```
 
 Finally, we get the response.
@@ -148,24 +168,126 @@ In some cases, you may want the response type to have a certain structure, such 
 Fortunately, we can convert the output string to a Python dictionary. First, we import `ResponseSchema` and `StructuredOutputParser`. Then, we create the elements that we want to extract with a description so that the model knows what to parse and format as required. Finally, we pass this through the format instructions within the initial prompt.
 
 ```{python}
-from langchain.schema import ResponseSchema
-from langchain.parsers import StructuredOutputParser
+# Base, repeat steps
+customer_review = """\
+This leaf blower is pretty amazing.  It has four settings:\
+candle blower, gentle breeze, windy city, and tornado. \
+It arrived in two days, just in time for my wife's \
+anniversary present. \
+I think my wife liked it so much she was speechless. \
+So far I've been the only one using it, and I've been \
+using it every other morning to clear the leaves on our lawn. \
+It's slightly more expensive than the other leaf blowers \
+out there, but I think it's worth it for the extra features.
+"""
 
-# Define the schema for the response
-schema = ResponseSchema(
-    element1=Description("Description of element1"),
-    element2=Description("Description of element2"),
-    ...
-)
+review_template = """\
+For the following text, extract the following information:
 
-# Parse the output string to a Python dictionary
-parser = StructuredOutputParser(schema)
-parsed_output = parser.parse(response.content)
+gift: Was the item purchased as a gift for someone else? \
+Answer True if yes, False if not or unknown.
 
-parsed_output
+delivery_days: How many days did it take for the product \
+to arrive? If this information is not found, output -1.
+
+price_value: Extract any sentences about the value or price,\
+and output them as a comma separated Python list.
+
+Format the output as JSON with the following keys:
+gift
+delivery_days
+price_value
+
+text: {text}
+"""
+
+from langchain.prompts import ChatPromptTemplate
+
+prompt_template = ChatPromptTemplate.from_template(review_template)
+
+messages = prompt_template.format_messages(text=customer_review)
+chat = ChatOpenAI(temperature=0.0, model=llm_model)
+response = chat(messages)
+
+print('Content', response.content)
+print("type", type(response.content))
+# It's just a String
+```
+
+Parse Outputs
+
+```{python}
+from langchain.output_parsers import ResponseSchema
+from langchain.output_parsers import StructuredOutputParser
+
+# Define the Schemas, with descriptions
+gift_schema = ResponseSchema(name="gift",
+                             description="Was the item purchased\
+                             as a gift for someone else? \
+                             Answer True if yes,\
+                             False if not or unknown.")
+delivery_days_schema = ResponseSchema(name="delivery_days",
+                                      description="How many days\
+                                      did it take for the product\
+                                      to arrive? If this \
+                                      information is not found,\
+                                      output -1.")
+price_value_schema = ResponseSchema(name="price_value",
+                                    description="Extract any\
+                                    sentences about the value or \
+                                    price, and output them as a \
+                                    comma separated Python list.")
+
+response_schemas = [gift_schema, 
+                    delivery_days_schema,
+                    price_value_schema]
+
+# Define the method into a `output` parser
+output_parser = StructuredOutputParser.from_response_schemas(response_schemas)
+
+format_instructions = output_parser.get_format_instructions()
+
+```
+
+
+```{python}
+# Run LLm
+review_template_2 = """\
+For the following text, extract the following information:
+
+gift: Was the item purchased as a gift for someone else? \
+Answer True if yes, False if not or unknown.
+
+delivery_days: How many days did it take for the product\
+to arrive? If this information is not found, output -1.
+
+price_value: Extract any sentences about the value or price,\
+and output them as a comma separated Python list.
+
+text: {text}
+
+{format_instructions}
+"""
+
+prompt = ChatPromptTemplate.from_template(template=review_template_2)
+
+messages = prompt.format_messages(text=customer_review, 
+                                format_instructions=format_instructions)
+response = chat(messages)
+print("content", response.content)
+print("type", type(response.content))
 ```
 
 When the model is run, the response obtained is as per the format instructions provided. We then pass it through the `parse` method of the content, which returns the Python dictionary.
+
+```{python}
+# Get dictionary
+
+result_dict = output_parser.parse(response.content)
+result_dict
+```
+
+
 
 ## LangChain Memory
 
@@ -179,6 +301,13 @@ To simulate this scenario with LangChain, we utilize four types of memory:
 - ConversationBufferWindowMemory
 - ConversationTokenBufferMemory
 - ConversationSummaryMemory
+<!-- - **ConversationBufferMemory**: Records and manages previous parts of a conversation, allowing language models to maintain conversational context. It's crucial for applications like chatbots to ensure a seamless conversational flow.
+
+- **ConversationBufferWindowMemory**: Retains a window of recent conversation exchanges, limiting memory growth. Useful for keeping track of recent terms without accumulating excessive memory.
+
+- **ConversationTokenBufferMemory**: Manages conversation tokens, controlling memory based on token limits. Helps manage costs associated with token-based pricing for language model calls.
+
+- **ConversationSummaryMemory**: Summarizes conversation history using an LLM, providing a concise overview of past exchanges. Useful for condensing lengthy conversations into manageable summaries, aiding memory storage efficiency. -->
 
 To use these methods, we can refer to the following example:
 
@@ -337,18 +466,25 @@ llm = ChatOpenAI(temperature=0.9, model=llm_model)
 ### LLM chain:
 
 ```{python}
-prompt = CPrompt.from_template("{input_}")
+prompt = CPrompt.from_template("What is the best name to describe \
+    a company that makes {product}?")
 chain = LLMChain(llm=llm, prompt=prompt)
-input_ = ""
+input_ = "Magic wands in the Harry Potter universe"
 chain.run(input_)
 ```
 
 ### SimpleSequentialChain
 
 ```{python}
-first_prompt = CPrompt.from_template("{input_1}")
+first_prompt = CPrompt.from_template(
+    "What is the best name to describe \
+    a company that makes {product}?"
+)
 first_chain = LLMChain(llm=llm, prompt=first_prompt)
-second_prompt = CPrompt.from_template("{input_2}")
+second_prompt = CPrompt.from_template(
+    "Write a 20 words description for the following \
+    company:{company_name}"
+)
 second_chain = LLMChain(llm=llm, prompt=second_prompt)
 
 simple_chain = SimpleSequentialChain(
@@ -356,9 +492,73 @@ simple_chain = SimpleSequentialChain(
     verbose=True
 )
 
-input_1 = ""
+input_1 = "Magic wands in the Harry Potter universe"
 
 simple_chain.run(input_1)
+```
+
+
+### SequentialChain
+
+```{python}
+from langchain.chains import SequentialChain
+llm = ChatOpenAI(temperature=0.9, model=llm_model)
+
+# prompt template 1: translate to english
+first_prompt = ChatPromptTemplate.from_template(
+    "Translate the following review to english:"
+    "\n\n{Review}"
+)
+# chain 1: input= Review and output= English_Review
+chain_one = LLMChain(
+    llm=llm, prompt=first_prompt, 
+    output_key="English_Review"
+    )
+
+second_prompt = ChatPromptTemplate.from_template(
+    "Can you summarize the following review in 1 sentence:"
+    "\n\n{English_Review}"
+)
+# chain 2: input= English_Review and output= summary
+chain_two = LLMChain(llm=llm, prompt=second_prompt, 
+                     output_key="summary"
+                    )
+# prompt template 3: translate to english
+third_prompt = ChatPromptTemplate.from_template(
+    "What language is the following review:\n\n{Review}"
+)
+# chain 3: input= Review and output= language
+chain_three = LLMChain(llm=llm, prompt=third_prompt,
+                       output_key="language"
+                      )
+
+# prompt template 4: follow up message
+fourth_prompt = ChatPromptTemplate.from_template(
+    "Write a follow up response to the following "
+    "summary in the specified language:"
+    "\n\nSummary: {summary}\n\nLanguage: {language}"
+)
+# chain 4: input= summary, language and output= followup_message
+chain_four = LLMChain(llm=llm, prompt=fourth_prompt,
+                      output_key="followup_message"
+                     )
+
+
+```
+
+```{python}
+review = "Je trouve le goût médiocre. La mousse ne tient pas, c'est bizarre. J'achète les mêmes dans le commerce et le goût est bien meilleur...\nVieux lot ou contrefaçon !?"
+
+# overall_chain: input= Review
+# and output= English_Review,summary, followup_message
+overall_chain = SequentialChain(
+    chains=[chain_one, chain_two, chain_three, chain_four],
+    input_variables=["Review"],
+    output_variables=["English_Review", "summary", "followup_message"],
+    verbose=True,
+)
+
+overall_chain(review)
 ```
 
 
@@ -564,14 +764,73 @@ wikipedia = initialize_agent(
 
 *Examples*
 
-```python
+```{python}
 # Query about the current president of Peru
 wikipedia("who is the current president of Peru?")
 ```
 
-```python
+```{python}
 # Query about the death of Sebastian Piñera, former President of Chile
 wikipedia("Sebastian Piñera die? cause of death")
 ```
 
 This code sets up an agent to interact with Wikipedia for retrieving information. It initializes the agent with Wikipedia as one of the tools to consult when the language model endpoint doesn't have relevant information. Then, it demonstrates how to use the agent to query information, such as the current president of Peru and details about the death of Sebastian Piñera, the former President of Chile.
+
+## Python REPL Tool
+
+The Python REPL (Read-Eval-Print Loop) tool allows for the execution of Python code based on the questions asked, providing solutions accordingly.
+
+```{python}
+from langchain import hub
+from langchain.agents import AgentExecutor
+from langchain_experimental.tools import PythonREPLTool
+from langchain.agents import create_openai_functions_agent
+
+# Define instructions for the agent
+instructions = """You are an agent designed to write and execute Python code to answer questions.
+You have access to a Python REPL, which you can use to execute Python code.
+If you get an error, debug your code and try again.
+Only use the output of your code to answer the question. 
+You might know the answer without running any code, but you should still run the code to get the answer.
+If it does not seem like you can write code to answer the question, just return "I don't know" as the answer.
+"""
+# Pulling a base prompt from Hub
+base_prompt = hub.pull("langchain-ai/openai-functions-template")
+# Partially filling the base prompt with instructions
+prompt = base_prompt.partial(instructions=instructions)
+
+# Initialize the Python REPL tool
+tools = [PythonREPLTool()]
+
+# Create an agent using OpenAI functions
+agent = create_openai_functions_agent(ChatOpenAI(temperature=0), tools, prompt)
+# Initialize an AgentExecutor for invoking the agent
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+```
+
+*Example*
+
+```{python}
+# Querying the agent for the 10th Fibonacci number
+agent_executor.invoke({"input": "What is the 10th Fibonacci number?"})
+```
+
+```{python}
+# Sorting a list of customers by last name and then first name
+customer_list = [
+    ["Harrison", "Chase"],
+    ["Lang", "Chain"],
+    ["Dolly", "Too"],
+    ["Elle", "Elem"],
+    ["Geoff", "Fusion"],
+    ["Trance", "Former"],
+    ["Jen", "Ayai"],
+]
+agent_executor.invoke(
+    {
+        "input": f"""
+        Sort these customers by last name and then first name and print the output: {customer_list}
+        """
+    }
+)
+```

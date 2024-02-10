@@ -442,7 +442,7 @@ Combine multiple chains where the output of one chain is the input of the next c
 
 - **Simple Sequential Chain**: A chain where one chain's output is another chain's input, resulting in a final output.
 
-![](https://miro.medium.com/v2/resize:fit:1400/1*sYdb7ca9vcmDV0gOiNaruQ.png)
+<img src="https://miro.medium.com/v2/resize:fit:1400/1*sYdb7ca9vcmDV0gOiNaruQ.png" width="600px" height="300px">
 
 - **Sequential Chain**: Similar to the simple sequential chain but allows multiple input variables for each step, useful for more complex downstream chains.
 
@@ -450,7 +450,7 @@ Combine multiple chains where the output of one chain is the input of the next c
 
 - **Router Chain**: Utilizes an LLM to route between potential options, deciding which sub-chain to pass input to based on input characteristics.
 
-![](https://miro.medium.com/v2/resize:fit:700/1*0TDSAfaL2Q46TnFWkQTagg.jpeg)
+<img src="https://miro.medium.com/v2/resize:fit:700/1*0TDSAfaL2Q46TnFWkQTagg.jpeg" width="600px" height="300px">
 
 ```{python}
 from langchain.chat_models import ChatOpenAI

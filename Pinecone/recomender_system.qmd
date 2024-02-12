@@ -1,28 +1,262 @@
 
 ```{python}
-%pip install  pinecone-client openai 
+%pip install  pinecone-client openai numpy pandas
 ```
 
 
-# Recomender System
+# Recommendation System
 
 ## Pinecone
 
-
-Pinecone makes it easy to provide long-term memory for high-performance AI applications. It’s a managed, cloud-native vector database with a simple API and no infrastructure hassles. Pinecone serves fresh, filtered query results with low latency at the scale of billions of vectors.
-
+Pinecone simplifies the provision of long-term memory for high-performance AI applications. It is a managed, cloud-native vector database with a straightforward API and no infrastructure complexities. Pinecone delivers fresh, filtered query results with low latency, capable of scaling to billions of vectors.
 
 ## Preview
 
-Para poder acceder al recurso de sebe de crear una cuenta en [pinecone](https://app.pinecone.io/), el cual por el momento se usara la version gratuita, cual solo nos permite tener solo un index storage, el cual sera suficiente para el ejercicio. 
+To access the resource, you need to create an account on [Pinecone](https://app.pinecone.io/). Currently, only the free version will be used, which allows for only one index storage, sufficient for the exercise.
 
-Previamente se necesitaba 2 elementos de pinecone para poder hacer las consultas, sin 
-embargo ahora solo se necesita la apikey de pinecone, para poder manjear los vectores.
+Previously, two elements of Pinecone were needed to make queries. However, now only the Pinecone API key is required to handle vectors.
 
-![](../chat_with_your_data/figs/0_preview.png)
+### Creating API KEY
+
+![](figs/login-pinecone.png)
+![](figs/api-key.png)
+![](figs/create_api-key.png)
+![](figs/save-api-key.png)
+<!-- ![](figs/) -->
+
+## How to Use
+
+To create the index in Pinecone, we need to import the necessary methods. Additionally, we must create the OpenAI client to generate embeddings (remember that embeddings are the vector representation of content).
+
+In this specific case, we are deleting all existing indexes with `pc.delete_index` in Pinecone because we can only have one in the free version. Additionally, we define the index name as `nameindex` and create the index (index creation typically takes between 1 to 3 minutes). Finally, we define our `index` to make queries.
+
+```{python}
+# pinecone
+from pinecone import Pinecone, PodSpec
+from google.colab import userdata
+
+pc_api_key = userdata.get("PINECONE_API_KEY")
+pc = Pinecone(api_key=pc_api_key)
+
+nameindex = "recommended"
+for index in pc.list_indexes():
+  pc.delete_index(index.get('name'))
+
+pc.create_index(
+    name=nameindex,
+    dimension=1536,
+    metric="cosine",
+    spec=PodSpec(
+        environment='us-west1-gcp',
+        pod_type='p1.x1'
+    )
+)
+# define the endpoint
+index = pc.Index(nameindex)
+```
+
+```{python}
+from openai import OpenAI
+
+OPENAI_API_KEY = userdata.get('OPENAI_API_KEY')
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+```
+
+To better understand what embeddings are, let's create them with OpenAI. First, we need to call the embeddings method and create the embeddings by providing the text and the model to use. OpenAI works with embeddings of 1536 elements, so each embedding must be a list of that same size. Within these embeddings, there is the element `data[0].embedding`, which is the value needed to upload to Pinecone as `value`.
+
+Para entender mejor que son los embedings, haremos la creacion de este con openai, primero tenemos que llamar al metodo de embeddings y crear el embeddings tomando el texto y el modelo a utilizar. Openai trabaja con un los embeddings de 1536 elementos, por lo que cada emebddings debe ser una lista de ese mismo tamanio. Dentro de este embeddings existe el elemmeto `data[0].embeddig` el cual es el valor que se necesita para poder subir a pinecone como `value`
 
 
+```{python}
+model_openai_e = "text-embedding-ada-002"
+embed = openai_client.embeddings.create(input='text', model=model_openai_e)
+dir(embed)
+```
+
+```{python}
+value = embed.data[0].embedding
+print(f"""value: {value[:10]}\n length: {len(value)}""")
+```
+
+Since this procedure will be repetitive, it will be included in a function.
+
+```{python}
+def get_embeddings(input, model=model_openai_e):
+    embed = openai_client.embeddings.create(input='text', model=model_openai_e)
+    value = embed.data[0].embedding
+    return value
+```
+
+In order to upload this vector to Pinecone, two additional elements are needed: the ID, which will serve as an identifier, and the metadata, which in Python is a dictionary and will be used for more precise queries.
+
+As an example, let's use a sample:
+
+```{python}
+import numpy as np
+
+value_vector = np.random.rand(1536)  # length of vector
+metadata = {
+    "test": "yes",
+    "title": "none"
+}
+
+upsert_response = index.upsert(
+    vectors=[
+        ("id_1", value_vector, metadata)
+    ]
+)
+```
+
+![](figs/index-created.png)
+![](figs/data-inside-index.png)
+
+In the Pinecone console, you can see that there is now an element with the values defined previously.
+
+## Example
+
+Let's use news data, which is available at the following [link](https://www.dropbox.com/scl/fi/wruzj2bwyg743d0jzd7ku/all-the-news-3.zip?rlkey=rgwtwpeznbdadpv3f01sznwxa&dl=1%22). To use it, we can directly execute this code, which will download a zip file and extract its contents into the current folder.
+
+```{python}
+!wget -q --show-progress -O all-the-news-3.zip "https://www.dropbox.com/scl/fi/wruzj2bwyg743d0jzd7ku/all-the-news-3.zip?rlkey=rgwtwpeznbdadpv3f01sznwxa&dl=1"
+
+!unzip all-the-news-3.zip
+```
+
+The data is contained within a CSV file.
+
+```{python}
+import pandas as pd
+df = pd.read_csv('./all-the-news-3.csv', nrows=99)
+print(df.columns, df.shape)
+```
+
+```{python}
+df.head(3)
+```
+
+In this example, only a sample will be uploaded to Pinecone.
+
+```{python}
+import numpy as np
+df = pd.read_csv('./all-the-news-3.csv', nrows=100)
+```
+
+Remember that we need 3 elements - ID, vector, and metadata - to upload to Pinecone. We'll generate a function that generates an ID, the embedding of the news titles, and the metadata, all within a tuple.
+
+```{python}
+import uuid
+
+def to_update(title: str):
+    _id = str(uuid.uuid1())
+    embed = get_embeddings(title)
+    metadata = {
+        "title": title
+    }
+    return (_id, embed, metadata)
+
+to_update("We should take concerns about the health ...")
+```
+
+```{python}
+from tqdm import tqdm
+
+titles = df['titles'].values
+for title in tqdm(titles):
+    value = to_update(title)
+    index.upsert(value)
+```
+
+To view recommendations from the database, we can make the request with the following prompt, where we specify in `vector` the query's embedding, `top_k` the number of items to display, and `include_metadata` to extract metadata that matches the vector.
+
+```{python}
+query_vector = get_embeddings("health")
+response = index.query(
+    vector=query_vector,
+    top_k=10,
+    include_metadata=True
+)
+
+def get_recommendations(index_pc, query, top_k=10):
+    query_vector = get_embeddings(query)
+    response = index_pc.query(
+        vector=query_vector,
+        top_k=top_k,
+        include_metadata=True
+    )
+    return response
+```
+
+Subsequently, we can see the score of how matching our vector recommendations are with the query embed, and we can also access the metadata.
+
+```{python}
+print(response)
+```
 
 
+## Large Texts
 
+The previous example used the title as the embedding and metadata. Now, the exercise will involve using the content of the news as the embedding and the title as metadata. To achieve this, we need to consider that the texts can be very long, so we'll need to split them.
 
+First, let's delete the existing index to upload the content again.
+
+```{python}
+name_index = 'article'
+for index in pc.list_indexes():
+  pc.delete_index(index.get('name'))
+
+pc.create_index(
+    name=name_index, 
+    dimension=1536, 
+    metric="cosine", 
+    spec=PodSpec(
+        environment='us-west1-gcp', 
+        pod_type='p1.x1'
+    )
+)
+index = pc.Index(name_index)
+```
+
+We'll reuse the data, but modify the `get_embeddings` function because the previous one only accepted a string. However, when the text passes through `text_splitter`, it will return a list of strings, each of which must be uploaded individually to Pinecone.
+
+```{python}
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=400, chunk_overlap=20 
+)
+
+articles = df['article'].values
+titles = df['titles'].values
+
+def get_embeddings(articles, model="text-embedding-ada-002") -> list:
+   return openai_client.embeddings.create(input=articles, model=model).data
+
+def embed(embed_index, embeddings, title, prepped):
+    for embedding in embeddings:
+        _id = str(uuid.uuid1())
+        values = embedding.embedding
+        metadata = {'title': title}
+        embed_index.upsert((_id, values, metadata))
+
+for i, article in tqdm(enumerate(articles)):
+    if article is None:
+        continue
+    texts = text_splitter.split_text(article)
+    embeddings_texts = get_embeddings(texts)
+    embed(index, embeddings_texts, titles[i], prepped)
+```
+
+Now that we have our index, we need to make queries. We'll reuse the `get_recommendations` function to find the vectors that match the query from highest to lowest.
+
+Unlike before, it will search within the articles for the most similar vectors. So, if an article is highly related to the query, the response will contain many matches corresponding to the same article. However, this is where we can use the metadata, as we can classify when each different article is mentioned.
+
+```{python}
+recommendation = get_recommendations(index, "Health")
+
+seen = {}
+for r in recommendation.matches:
+    title = r.metadata['title']
+    if title not in seen:
+        print(f"Score: {r.score} \t Title: {title}")
+        seen[title] = "."
+```

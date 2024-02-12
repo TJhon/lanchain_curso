@@ -18,11 +18,19 @@ Previously, two elements of Pinecone were needed to make queries. However, now o
 
 ### Creating API KEY
 
+Login Pinecone
+
 ![](figs/login-pinecone.png)
+
+Create Api Key
+
 ![](figs/api-key.png)
+
 ![](figs/create_api-key.png)
+
+Save Api Key
+
 ![](figs/save-api-key.png)
-<!-- ![](figs/) -->
 
 ## How to Use
 

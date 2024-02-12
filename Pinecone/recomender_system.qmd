@@ -1,0 +1,28 @@
+
+```{python}
+%pip install  pinecone-client openai 
+```
+
+
+# Recomender System
+
+## Pinecone
+
+
+Pinecone makes it easy to provide long-term memory for high-performance AI applications. It’s a managed, cloud-native vector database with a simple API and no infrastructure hassles. Pinecone serves fresh, filtered query results with low latency at the scale of billions of vectors.
+
+
+## Preview
+
+Para poder acceder al recurso de sebe de crear una cuenta en [pinecone](https://app.pinecone.io/), el cual por el momento se usara la version gratuita, cual solo nos permite tener solo un index storage, el cual sera suficiente para el ejercicio. 
+
+Previamente se necesitaba 2 elementos de pinecone para poder hacer las consultas, sin 
+embargo ahora solo se necesita la apikey de pinecone, para poder manjear los vectores.
+
+![](../chat_with_your_data/figs/0_preview.png)
+
+
+
+
+
+

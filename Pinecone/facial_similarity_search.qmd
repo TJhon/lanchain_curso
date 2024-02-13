@@ -1,0 +1,329 @@
+# Facial Similarity Search
+
+In this lesson, you will have fun with the age old question of to which parent the child looks the most similar. To do this, you'll answer the question by using vector embeddings. You'll use a freely available image data set, in particular when it's a british royal family, and use science to determine if Prince William looks more like King Charles or Princess Diana. It's simple and extensible enough for you to try on your own family pictures. 
+
+We're going to build a facial similarity search system to compute which parent looks most like their child. So we'll take a father, we'll take a mother, and we'll take one child and see whether the child looks more like their father or more like their mother. The person that looks the closest will be based upon the highest average score between each parent and child. 
+
+
+
+
+
+We're going to use the deepface open source library with a facenet model inside of it that's 128 dimensions wide. So, to begin with, we'll importing our warnings to stop the warnings from showing up, as well as a slightly longer list of imports into the notebook. And then we will get our Pine cone API key. 
+
+
+
+```{python}
+import warnings
+warnings.filterwarnings('ignore')
+
+from deepface import DeepFace
+from pinecone import Pinecone, ServerlessSpec
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from tqdm import tqdm
+
+from google.colab import userdata
+
+import contextlib
+import glob
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import pandas as pd
+import time
+
+PINECONE_API_KEY = userdata.get('PINECONE_API_KEY')
+```
+
+And the data set that we're going to use came from the families in the wild data set, 
+which I'll have a link to in the lesson here. 
+
+I will not make you sit there and watch me download the data. But similar parameters to WGet. Make it quiet, show the progress. I'll put the file name as family, underscore photos, zip, and pull it off of the location that I've specified here. And you run that. And then we will unzip the photos as well. Okay, perfect. Make sure that you run the query like this.
+
+And the family photos zip file has a structure of family as a top level directory with subdirectories of dad, mom and child each. 
+
+```{python}
+!wget -q --show-progress -O family_photos.zip "https://www.dropbox.com/scl/fi/yg0f2ynbzzd2q4nsweti5/family_photos.zip?rlkey=00oeuiii3jgapz2b1bfj0vzys&dl=0"
+
+!unzip -q family_photos.zip
+
+dir family_photos
+```
+
+So the way that it's going to work is the user is going to run images of King Charles, Princess Diana and Prince William through the deepface model that we're going to use, and we're going to store those vector embeddings in Pinecone. The way that we're going to calculate similarity is we're going to run images of King Charles and Princess Diana and Prince William through the deepface model that we're going to use and store those values in pine cone. Then we'll calculate similarity scores for the mother and the child and the father and the child and see based on an average, who looks more like each other. 
+
+
+So let's actually look at some of the pictures. I've created a small helper function to help you see the photos called show underscore image. 
+
+That's an image of King Charles. 
+
+```{python}
+def show_img(f):
+  img = plt.imread(f)
+  plt.figure(figsize=(4,3))
+  plt.imshow(img)
+# data
+show_img('family/dad/P06260_face5.jpg')
+```
+
+Let's do the same thing for Princess Diana. 
+
+```{python}
+# mon
+show_img('family/mom/P04407_face2.jpg')
+```
+
+And same thing for Prince William. 
+
+```{python}
+show_img('family/child/P04414_face1.jpg')
+```
+
+
+
+And now we're going to set up Pine cone. So same as before, we're going to create our index name using the deep learning AI utilities package, get a pointer to our pine cone instance and run that. 
+
+And now we're going to create our vector embeddings inside of Pine cone. 
+
+```{python}
+MODEL = 'Facenet'
+INDEX_NAME = 'facenet'
+
+pinecone = Pinecone(api_key=PINECONE_API_KEY)
+```
+
+So we're going to actually store a file called `vector.vec`, and we're going to use that and keep it around because we're going to iterate through the data multiple times and we're going to suppress warnings in case the file doesn't exist. 
+
+Para poder crear los embeddings, usaremos DeepFace 
+
+```{python}
+img_embed = DeepFace.represent(
+    img_path = 'family/child/P04414_face1.jpg',
+    model_name = MODEL,
+    enforce_detection=False
+)[0]['embedding']
+print(
+    f"Embed: {img_embed[:10]}\nLength: {len(img_embed)}"
+)
+```
+
+
+And we're going to remove the file just to keep things clean. So what we're going to do is open up the file, we're going glob all of the images of each of the people separately, and then we're going to create embeddings out of each person's face and write it to disk. And the way that we're going to write it to disk inside of that vectors vec file is person, the image name, and then the embedding value itself. 
+
+```{python}
+def generate_vectors():
+  VECTOR_FILE = "./vectors.vec"
+
+  with contextlib.suppress(FileNotFoundError):
+    os.remove(VECTOR_FILE)
+  with open(VECTOR_FILE, "w") as f:
+    for person in ["mom", "dad", "child"]:
+      files = glob.glob(f'family/{person}/*')
+      for file in tqdm(files):
+        try:
+          embedding = DeepFace.represent(img_path=file, model_name=MODEL, enforce_detection=False)[0]['embedding']
+          f.write(f'{person}:{os.path.basename(file)}:{embedding}\n')
+        except (ValueError, UnboundLocalError, AttributeError) as e:
+          print(e)
+
+generate_vectors()
+```
+
+And then we'll go ahead and call generate vectors and store that. And now let's actually look at that file and see what it looks like. So we'll just use head to look at the data. 
+
+```{python}
+!head -10 vectors.vec
+```
+
+Now we're ready to calculate some scores and upload data into pine cone. Before we upload the data into pinecone, we're going to produce a teesy scatter plot based on PCA reduction that's going to give us a really pretty scatter plot of the data so we can visualize it. 
+
+Principal component analysis, or PCA, reduces the dimensionality of data, in this case embeddings, and is often used to reduce the dimensionality of large data sets by transforming a large set of variables into a smaller one that still contains most of the information in the large set. 
+
+
+So I've created one helper function called `gen_tsne_df`, or generate TSNE data frame, and what that does is iterates through the vectors vec file, looking for a specific person and appending that to the vectors list. 
+
+```{python}
+def gen_tsne_df(person, perplexity):
+    vectors =[]
+    with open('./vectors.vec', 'r') as f:
+      for line in tqdm(f):
+        p, orig_img, v = line.split(':')
+        if person == p:
+            vectors.append(eval(v))
+    pca = PCA(n_components=8)
+    tsne = TSNE(2, perplexity=perplexity, random_state = 0, n_iter=1000,
+        verbose=0, metric='euclidean', learning_rate=75)
+    print(f'transform {len(vectors)} vectors')
+    pca_transform = pca.fit_transform(vectors)
+    embeddings2d = tsne.fit_transform(pca_transform)
+    return pd.DataFrame({'x':embeddings2d[:,0], 'y':embeddings2d[:,1]})
+```
+
+
+A TSNE plot or t distributed stochastic neighbor embedding plot is a type of data visualization used primarily to represent high dimensional data in a two or three dimensional space. This technique is particularly useful for understanding complex datasets by reviewing patterns, clusters, and relationships between data points that might not be apparent in higher dimensions. PCA is often used as a preliminary step to reduce the dimensionality of the data. 
+
+This can be particularly important when working with very high dimensional data, as it helps to mitigate the curse of dimensionality before applying TSNE. TSNE can be computationally expensive and slow, especially with large data sets. And so by using PCA to reduce the data to a lower dimensional space, first you get a significant speed up in the TSNE process. For the TSNE algorithm, perplexity is a very important hyperparameter that controls the number of neighbors that each point considers during dimensionality reduction. 
+
+
+And then what we do is actually do a PCA reduction against a specific person. So what we're doing here is a PCA reduction for a specific person who's passed into the function. Then we do a TSNE reduction as well against that, and return that as a data frame to the next function, which we're going to call here called `plot_tsne`. 
+
+And I'm going to go ahead and plug that in. So plot TSNI actually calls generate TSNe data frame. And you can see it down here below. And most of this code is just setting up matplotlib. And what we're going to do here, and this is the meat of it, is for each person that we've defined here in this, this dictionary. 
+
+```{python}
+def plot_tsne(perplexity, model):
+    (_, ax) = plt.subplots(figsize=(8,5))
+    #plt.style.use('seaborn-whitegrid')
+    plt.grid(color='#EAEAEB', linewidth=0.5)
+    ax.spines['top'].set_color(None)
+    ax.spines['right'].set_color(None)
+    ax.spines['left'].set_color('#2B2F30')
+    ax.spines['bottom'].set_color('#2B2F30')
+    colormap = {'dad':'#ee8933', 'child':'#4fad5b', 'mom':'#4c93db'}
+
+    for person in colormap:
+        embeddingsdf = gen_tsne_df(person, perplexity)
+        ax.scatter(embeddingsdf.x, embeddingsdf.y, alpha=.5, 
+                   label=person, color=colormap[person])
+    plt.title(f'Scatter plot of faces using {model}', fontsize=16, fontweight='bold', pad=20)
+    plt.suptitle(f't-SNE [perplexity={perplexity}]', y=0.92, fontsize=13)
+    plt.legend(loc='best', frameon=True)
+    plt.show()
+```
+
+Dad, child and mom. These are just the colorists for the legend. We're going to call generate TSNE data frame and get back a data frame and plot it against our scatter plot and then actually show the plot. 
+So we're going to call `plot_tsne` with a perplexity of 44. Definitely. I encourage you to play with that at home to see how it changes the scatter plot. 
+
+```{python}
+# plot_tsne(27, 'facenet')
+plot_tsne(44, 'facenet')
+```
+
+But you can see here that the images of each of the dad, the child, and the mom do cluster together. Well, I would definitely discourage you from insinuating too much that the child and the mom are close together in the scatter plot. Is that doesn't actually show much. 
+
+
+Really what you want to do is look at the fact that the images are clustering within each person on their own. So, in other words, each one of these dots represents one image of a dad, and they're all very closely clustered together, which is great, because each of the pictures of the dad should look like the dad. Same thing for the child and same thing for the mom. 
+
+
+
+
+Let's set up Pinecone so that we can store these values. So what we're going to do is, same thing that we've always done, delete the index, and then create the index again so we have a clean slate. 
+
+```{python}
+if INDEX_NAME in [index.name for index in pinecone.list_indexes()]:
+  pinecone.delete_index(INDEX_NAME)
+pinecone.create_index(
+    name=INDEX_NAME, dimension=128, metric='cosine',
+  spec=ServerlessSpec(cloud='aws', region='us-west-2')
+  )
+
+index = pinecone.Index(INDEX_NAME)
+```
+
+We'll go ahead and run that now we're going to store the vectors, run through that file that we created again one more time. So open up the file, iterate through one line at a time, split it into the person and the file name eval, the vector that was actually stored in that file and upset it into pine cone. 
+
+```{python}
+def store_vectors():
+  with open("vectors.vec", "r") as f:
+    for line in tqdm(f):
+        person, file, vec = line.split(':')
+        index.upsert([
+            (f'{person}-{file}', eval(vec), {"person":person, "file":file})
+            ])
+store_vectors()
+
+index.describe_index_stats()
+
+```
+
+
+So now let's compute the scores. And what this is going to do is return the top k, similar images against the child. 
+
+So it's going to take in one of the parents, which is either going to be mom or dad each time around, and it's going to return the top k. And what we're going to do is actually calculate the average score from the returned value from the query from pine cone. 
+
+So for each vector inside pine cone, we're going to get a score and we're going to take the average of the top k values that we got back. So let's store that value and then we're going to call it for each relationship that we want to look at. So we're going to call compute scores. 
+
+And so what we're going to do is call test for the dad in the child. And we're going to call `test` for the mom and the child. And to do that, we're going to take a random vector, a random image, I should say, from the dad and the mom and use that to compute the score. 
+
+```{python}
+def test(vec_groups, parent, child):
+  index = pinecone.Index(INDEX_NAME)
+  parent_vecs = vec_groups[parent]
+  K = 10
+  SAMPLE_SIZE = 10
+  sum = 0
+  for i in tqdm(range(0,SAMPLE_SIZE)):
+    query_response = index.query(
+      top_k=K,
+      vector = parent_vecs[i],
+      filter={
+        "person": {"$eq": child}
+      }
+    )
+    for row in query_response["matches"]:
+      sum  = sum + row["score"]
+  print(f'\n\n{parent} AVG: {sum / (SAMPLE_SIZE*K)}')
+```
+
+```{python}
+def compute_scores():
+  index = pinecone.Index(INDEX_NAME)
+  vec_groups = {"dad":[], "mom":[], "child":[]}
+  with open("vectors.vec", "r") as f:
+    for line in tqdm(f):
+      person, file, vec = line.split(':')
+      vec_groups[person].append(eval(vec))
+  print(f"DAD {'-' * 20}")
+  test(vec_groups, "dad", "child")
+  print(f"MOM {'-' * 20}")
+  test(vec_groups, "mom", "child")
+
+compute_scores()
+```
+
+So the dad got an average score of zero point 43, closeness to Prince William, who's the child, and the mom got an average score of zero point 35, closeness to the child that is Prince William. 
+
+And so what that means is that the dad is closer and similarity to Prince William. 
+
+Now what we can do is use the fact that we know the dad is closer and find which image is the closest between them. So what we're going to do is take one base image of the child.
+
+```{python}
+child_base = 'family/child/P06310_face1.jpg'
+show_img(child_base)
+```
+
+```{python}
+#Now find closest given we know dad is "most similar"
+embedding = DeepFace.represent(img_path=child_base, model_name=MODEL)[0]['embedding']
+print(embedding)
+```
+
+We'll take the top three results that match it from the dad. And then let's look at the response. This is a typical JSON blob that comes back from pine cone. You get the id of the vector, you get the metadata, and you get the score. 
+
+
+Now what we're going to do is look at the image in particular that matches. So is the image that is most similar to Prince William. 
+
+```{python}
+query_response = index.query(
+      top_k=3,
+      vector = embedding,
+      filter={
+        "person": {"$eq": "dad"}
+      },
+      include_metadata=True
+)
+```
+
+
+```{python}
+print(query_response)
+```
+
+```{python}
+photo = query_response["matches"][0]["metadata"]["file"]
+show_img(f"family/dad/{photo}")
+
+```
+
+So in this example, we built a facial similarity system that matches King Charles and Princess Diana to their offspring Prince William to figure out which of those two looks most like Prince William. The data showed that's actually King Charles that looks the most like Prince William. 
+
+And at the end, we figured out which image in particular looks most like Prince William. And we saw that this image here at the end looks most like Prince William, which I would agree they very much look similar. I encourage you to play with this.
